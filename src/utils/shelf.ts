@@ -1,4 +1,4 @@
-import type { Package, ShelfConfig, ShelfOverview, ShelfSlotInfo } from '@/types';
+import type { Package, ShelfConfig, ShelfOverview, ShelfSlotInfo, ShelfLayerDetail, ShelfSlotPackage } from '@/types';
 
 export function generateShelfNumber(
   packages: Package[],
@@ -86,5 +86,38 @@ export function parseShelfNumber(shelfNumber: string): {
     zone: parts[0],
     floor: parseInt(parts[1], 10),
     slot: parseInt(parts[2], 10),
+  };
+}
+
+export function getShelfLayerDetail(
+  packages: Package[],
+  config: ShelfConfig,
+  zone: string,
+  floor: number
+): ShelfLayerDetail {
+  const { slotsPerFloor } = config;
+  const pendingPackages = packages.filter((p) => p.status === 'pending');
+
+  const slotMap = new Map<number, Package>();
+  pendingPackages.forEach((pkg) => {
+    const parsed = parseShelfNumber(pkg.shelfNumber);
+    if (parsed.zone === zone && parsed.floor === floor) {
+      slotMap.set(parsed.slot, pkg);
+    }
+  });
+
+  const slots: ShelfSlotPackage[] = [];
+  for (let i = 1; i <= slotsPerFloor; i++) {
+    slots.push({
+      slotNumber: i,
+      package: slotMap.get(i) || null,
+    });
+  }
+
+  return {
+    zone,
+    floor,
+    totalSlots: slotsPerFloor,
+    slots,
   };
 }

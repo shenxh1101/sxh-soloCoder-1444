@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Copy,
   Check,
@@ -12,10 +12,14 @@ import {
   X,
   ChevronRight,
   Phone,
+  PieChart,
+  MapPin,
+  Truck,
 } from 'lucide-react';
 import { usePackageStore } from '@/hooks/usePackageStore';
-import { COURIER_COMPANIES, type BatchEntryItem, type Package } from '@/types';
+import { COURIER_COMPANIES, type BatchEntryItem, type Package, type BatchSummaryItem } from '@/types';
 import { formatDate } from '@/utils/storage';
+import { parseShelfNumber } from '@/utils/shelf';
 
 type Mode = 'single' | 'batch';
 
@@ -50,6 +54,25 @@ export default function Register() {
 
   const trackingInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+
+  const batchSummary = useMemo((): BatchSummaryItem[] => {
+    if (!batchResult) return [];
+    const summaryMap = new Map<string, { count: number; zones: Set<string> }>();
+    batchResult.success.forEach((pkg) => {
+      const existing = summaryMap.get(pkg.courierCompany) || { count: 0, zones: new Set() };
+      existing.count += 1;
+      const { zone } = parseShelfNumber(pkg.shelfNumber);
+      existing.zones.add(zone);
+      summaryMap.set(pkg.courierCompany, existing);
+    });
+    return Array.from(summaryMap.entries())
+      .map(([courierCompany, data]) => ({
+        courierCompany,
+        count: data.count,
+        zones: Array.from(data.zones).sort(),
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [batchResult]);
 
   useEffect(() => {
     if (mode === 'single') {
@@ -662,9 +685,14 @@ export default function Register() {
 
       {showBatchResult && batchResult && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-dark-800">批量入库结果</h2>
+              <div>
+                <h2 className="text-xl font-bold text-dark-800">批量入库结果</h2>
+                <p className="text-sm text-dark-500 mt-1">
+                  {formatDate(Date.now())} 入库清单
+                </p>
+              </div>
               <button
                 onClick={() => setShowBatchResult(false)}
                 className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
@@ -672,8 +700,8 @@ export default function Register() {
                 <X className="w-5 h-5 text-dark-400" />
               </button>
             </div>
-            <div className="p-6 overflow-y-auto max-h-[60vh]">
-              <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
+              <div className="grid grid-cols-3 gap-4 mb-6">
                 <div className="bg-green-50 rounded-xl p-4 text-center">
                   <p className="text-3xl font-bold text-green-600">
                     {batchResult.success.length}
@@ -686,12 +714,56 @@ export default function Register() {
                   </p>
                   <p className="text-sm text-red-600">入库失败</p>
                 </div>
+                <div className="bg-primary-50 rounded-xl p-4 text-center">
+                  <p className="text-3xl font-bold text-primary-600">
+                    {batchSummary.length}
+                  </p>
+                  <p className="text-sm text-primary-600">快递公司</p>
+                </div>
               </div>
+
+              {batchSummary.length > 0 && (
+                <div className="mb-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-blue-600 rounded-lg flex items-center justify-center">
+                      <PieChart className="w-4 h-4 text-white" />
+                    </div>
+                    <h3 className="font-semibold text-dark-700">入库清单摘要</h3>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                    {batchSummary.map((item, index) => (
+                      <div
+                        key={item.courierCompany}
+                        className="flex items-center gap-4 p-3 bg-white rounded-lg"
+                      >
+                        <span className="w-6 h-6 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center text-sm font-bold">
+                          {index + 1}
+                        </span>
+                        <div className="flex items-center gap-2 flex-1">
+                          <Truck className="w-4 h-4 text-dark-400" />
+                          <span className="font-medium text-dark-700">
+                            {item.courierCompany}
+                          </span>
+                        </div>
+                        <span className="px-3 py-1 bg-primary-100 text-primary-600 rounded-full text-sm font-bold">
+                          {item.count} 件
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-dark-400" />
+                          <span className="text-xs text-dark-500">
+                            {item.zones.join('、')}区
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {batchResult.success.length > 0 && (
                 <div className="mb-6">
                   <h3 className="font-semibold text-dark-700 mb-3">成功入库清单</h3>
-                  <div className="space-y-2">
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
                     {batchResult.success.map((pkg) => (
                       <div
                         key={pkg.id}

@@ -35,6 +35,18 @@ export interface ShelfSlotInfo {
   availableSlots: number;
 }
 
+export interface ShelfSlotPackage {
+  slotNumber: number;
+  package: Package | null;
+}
+
+export interface ShelfLayerDetail {
+  zone: string;
+  floor: number;
+  totalSlots: number;
+  slots: ShelfSlotPackage[];
+}
+
 export interface ShelfOverview {
   totalCapacity: number;
   totalUsed: number;
@@ -51,6 +63,12 @@ export interface BatchEntryItem {
   courierCompany: string;
   shelfNumber?: string;
   error?: string;
+}
+
+export interface BatchSummaryItem {
+  courierCompany: string;
+  count: number;
+  zones: string[];
 }
 
 export interface DailyStats {

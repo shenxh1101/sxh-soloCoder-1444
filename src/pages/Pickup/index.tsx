@@ -1,7 +1,8 @@
-import { useState, useMemo, useEffect } from 'react';
-import { Search, CheckCheck, PackageSearch, Filter } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { Search, CheckCheck, PackageSearch, Filter, CheckSquare, Square } from 'lucide-react';
 import { usePackageStore } from '@/hooks/usePackageStore';
 import PackageCard from '@/components/PackageCard';
+import { isOverdue } from '@/utils/storage';
 
 export default function Pickup() {
   const [keyword, setKeyword] = useState('');
@@ -15,46 +16,65 @@ export default function Pickup() {
   const results = useMemo(() => {
     let pkgs = searchPackages(keyword);
     if (filterOverdue) {
-      pkgs = pkgs.filter((p) => {
-        const diff = Date.now() - p.createdAt;
-        return diff > 3 * 24 * 60 * 60 * 1000;
-      });
+      pkgs = pkgs.filter((p) => isOverdue(p.createdAt));
     }
     return pkgs.sort((a, b) => a.createdAt - b.createdAt);
   }, [keyword, filterOverdue, searchPackages]);
 
+  const resultIds = useMemo(() => new Set(results.map((p) => p.id)), [results]);
+
+  const validSelectedIds = useMemo(
+    () => selectedIds.filter((id) => resultIds.has(id)),
+    [selectedIds, resultIds]
+  );
+
   useEffect(() => {
     setSelectedIds([]);
   }, [keyword, filterOverdue]);
+
+  useEffect(() => {
+    if (validSelectedIds.length !== selectedIds.length) {
+      setSelectedIds(validSelectedIds);
+    }
+  }, [validSelectedIds, selectedIds.length]);
 
   const handlePick = (id: string) => {
     pickPackage(id);
     setSelectedIds((prev) => prev.filter((i) => i !== id));
   };
 
-  const handleSelect = (id: string) => {
+  const handleSelect = useCallback((id: string) => {
+    if (!resultIds.has(id)) return;
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
     );
-  };
+  }, [resultIds]);
 
   const handleBatchPick = () => {
-    if (selectedIds.length > 0) {
-      pickPackages(selectedIds);
+    if (validSelectedIds.length > 0) {
+      pickPackages(validSelectedIds);
       setSelectedIds([]);
     }
   };
 
   const selectAll = () => {
-    const resultIds = results.map((p) => p.id);
-    if (selectedIds.length === results.length && results.length > 0) {
+    if (validSelectedIds.length === results.length && results.length > 0) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(resultIds);
+      setSelectedIds(results.map((p) => p.id));
     }
   };
 
-  const isAllSelected = results.length > 0 && selectedIds.length === results.length;
+  const isAllSelected = results.length > 0 && validSelectedIds.length === results.length;
+  const isPartialSelected = validSelectedIds.length > 0 && validSelectedIds.length < results.length;
+
+  const overdueCount = results.filter((p) => isOverdue(p.createdAt)).length;
+  const normalCount = results.length - overdueCount;
+  const selectedOverdueCount = validSelectedIds.filter((id) => {
+    const pkg = results.find((p) => p.id === id);
+    return pkg && isOverdue(pkg.createdAt);
+  }).length;
+  const selectedNormalCount = validSelectedIds.length - selectedOverdueCount;
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -89,19 +109,36 @@ export default function Pickup() {
           </button>
         </div>
 
-        {selectedIds.length > 0 && (
-          <div className="mt-4 flex items-center justify-between p-4 bg-primary-50 rounded-xl border border-primary-200">
-            <span className="text-primary-700 font-medium">
-              已选择 <span className="font-bold">{selectedIds.length}</span> 个包裹
-              <span className="text-primary-500 text-sm ml-2">
-                （仅当前筛选结果）
+        {validSelectedIds.length > 0 && (
+          <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-primary-50 rounded-xl border border-primary-200">
+            <div>
+              <span className="text-primary-700 font-medium">
+                已选择 <span className="font-bold text-lg">{validSelectedIds.length}</span> 个包裹
+                <span className="text-primary-500 text-sm ml-2">
+                  （仅当前筛选结果）
+                </span>
               </span>
-            </span>
+              <div className="flex gap-4 mt-1 text-xs">
+                <span className="text-green-600">
+                  普通件 {selectedNormalCount} 件
+                </span>
+                <span className="text-red-600">
+                  超期件 {selectedOverdueCount} 件
+                </span>
+              </div>
+            </div>
             <div className="flex gap-3">
               <button
                 onClick={selectAll}
-                className="px-4 py-2 text-sm text-primary-600 hover:bg-primary-100 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm text-primary-600 hover:bg-primary-100 rounded-lg transition-colors flex items-center gap-1.5"
               >
+                {isPartialSelected ? (
+                  <CheckSquare className="w-4 h-4 opacity-50" />
+                ) : isAllSelected ? (
+                  <CheckSquare className="w-4 h-4" />
+                ) : (
+                  <Square className="w-4 h-4" />
+                )}
                 {isAllSelected ? '取消全选' : '全选'}
               </button>
               <button
@@ -117,14 +154,30 @@ export default function Pickup() {
       </div>
 
       <div className="mb-4 flex items-center justify-between">
-        <p className="text-dark-500 text-sm">
-          共找到 <span className="font-semibold text-dark-700">{results.length}</span> 个待取包裹
-        </p>
+        <div>
+          <p className="text-dark-500 text-sm">
+            共找到 <span className="font-semibold text-dark-700">{results.length}</span> 个待取包裹
+            {results.length > 0 && (
+              <span className="ml-3 text-xs">
+                <span className="text-green-600">普通 {normalCount} 件</span>
+                <span className="mx-2 text-dark-300">|</span>
+                <span className="text-red-600">超期 {overdueCount} 件</span>
+              </span>
+            )}
+          </p>
+        </div>
         {results.length > 0 && (
           <button
             onClick={selectAll}
-            className="text-sm text-primary-500 hover:text-primary-600 font-medium"
+            className="text-sm text-primary-500 hover:text-primary-600 font-medium flex items-center gap-1.5"
           >
+            {isPartialSelected ? (
+              <CheckSquare className="w-4 h-4 opacity-50" />
+            ) : isAllSelected ? (
+              <CheckSquare className="w-4 h-4" />
+            ) : (
+              <Square className="w-4 h-4" />
+            )}
             {isAllSelected ? '取消全选' : '全选'}
           </button>
         )}
@@ -148,7 +201,7 @@ export default function Pickup() {
               pkg={pkg}
               showPickButton
               onPick={handlePick}
-              selected={selectedIds.includes(pkg.id)}
+              selected={validSelectedIds.includes(pkg.id)}
               onSelect={handleSelect}
             />
           ))}

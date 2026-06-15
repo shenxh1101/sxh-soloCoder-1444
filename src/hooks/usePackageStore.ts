@@ -7,6 +7,7 @@ import type {
   ShelfOverview,
   FollowUpRecord,
   BatchEntryItem,
+  ShelfLayerDetail,
 } from '@/types';
 import { DEFAULT_SHELF_CONFIG } from '@/types';
 import {
@@ -18,7 +19,7 @@ import {
   isOverdue,
   isToday,
 } from '@/utils/storage';
-import { generateShelfNumber, getShelfOverview, isShelfFull } from '@/utils/shelf';
+import { generateShelfNumber, getShelfOverview, isShelfFull, getShelfLayerDetail } from '@/utils/shelf';
 
 interface BatchAddResult {
   success: Package[];
@@ -69,6 +70,8 @@ interface PackageState {
   getPackageById: (id: string) => Package | undefined;
 
   getTodayReceivedPackages: () => Package[];
+
+  getShelfLayerDetail: (zone: string, floor: number) => ShelfLayerDetail;
 }
 
 export const usePackageStore = create<PackageState>((set, get) => ({
@@ -310,5 +313,10 @@ export const usePackageStore = create<PackageState>((set, get) => ({
     return packages
       .filter((p) => isToday(p.createdAt))
       .sort((a, b) => b.createdAt - a.createdAt);
+  },
+
+  getShelfLayerDetail: (zone, floor) => {
+    const { packages, shelfConfig } = get();
+    return getShelfLayerDetail(packages, shelfConfig, zone, floor);
   },
 }));
