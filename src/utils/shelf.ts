@@ -121,3 +121,37 @@ export function getShelfLayerDetail(
     slots,
   };
 }
+
+export function buildShelfNumber(zone: string, floor: number, slot: number): string {
+  return `${zone}-${floor}-${String(slot).padStart(2, '0')}`;
+}
+
+export interface EmptySlotInfo {
+  zone: string;
+  floor: number;
+  slot: number;
+  shelfNumber: string;
+}
+
+export function getAllEmptySlots(
+  packages: Package[],
+  config: ShelfConfig
+): EmptySlotInfo[] {
+  const { zones, floors, slotsPerFloor } = config;
+  const usedShelves = new Set(
+    packages.filter((p) => p.status === 'pending').map((p) => p.shelfNumber)
+  );
+
+  const emptySlots: EmptySlotInfo[] = [];
+  for (const zone of zones) {
+    for (let floor = 1; floor <= floors; floor++) {
+      for (let slot = 1; slot <= slotsPerFloor; slot++) {
+        const shelfNumber = buildShelfNumber(zone, floor, slot);
+        if (!usedShelves.has(shelfNumber)) {
+          emptySlots.push({ zone, floor, slot, shelfNumber });
+        }
+      }
+    }
+  }
+  return emptySlots;
+}

@@ -15,9 +15,11 @@ import {
   PieChart,
   MapPin,
   Truck,
+  History,
+  Calendar,
 } from 'lucide-react';
 import { usePackageStore } from '@/hooks/usePackageStore';
-import { COURIER_COMPANIES, type BatchEntryItem, type Package, type BatchSummaryItem } from '@/types';
+import { COURIER_COMPANIES, type BatchEntryItem, type Package, type BatchSummaryItem, type BatchHistoryRecord } from '@/types';
 import { formatDate } from '@/utils/storage';
 import { parseShelfNumber } from '@/utils/shelf';
 
@@ -31,6 +33,8 @@ export default function Register() {
   const getTodayReceivedPackages = usePackageStore(
     (state) => state.getTodayReceivedPackages
   );
+  const addBatchHistoryRecord = usePackageStore((state) => state.addBatchHistoryRecord);
+  const getTodayBatchHistory = usePackageStore((state) => state.getTodayBatchHistory);
 
   const [mode, setMode] = useState<Mode>('single');
   const [trackingNumber, setTrackingNumber] = useState('');
@@ -44,6 +48,8 @@ export default function Register() {
     trackingNumber: string;
   } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const [batchItems, setBatchItems] = useState<BatchEntryItem[]>([]);
   const [batchResult, setBatchResult] = useState<{
@@ -54,6 +60,12 @@ export default function Register() {
 
   const trackingInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+
+  const todayBatchHistory = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _ = refreshKey;
+    return getTodayBatchHistory();
+  }, [getTodayBatchHistory, refreshKey]);
 
   const batchSummary = useMemo((): BatchSummaryItem[] => {
     if (!batchResult) return [];
@@ -203,6 +215,29 @@ export default function Register() {
     setBatchResult(result);
     setShowBatchResult(true);
     setBatchItems([]);
+
+    const summaryMap = new Map<string, { count: number; zones: Set<string> }>();
+    result.success.forEach((pkg) => {
+      const existing = summaryMap.get(pkg.courierCompany) || { count: 0, zones: new Set() };
+      existing.count += 1;
+      const { zone } = parseShelfNumber(pkg.shelfNumber);
+      existing.zones.add(zone);
+      summaryMap.set(pkg.courierCompany, existing);
+    });
+    const summary = Array.from(summaryMap.entries())
+      .map(([cc, data]) => ({
+        courierCompany: cc,
+        count: data.count,
+        zones: Array.from(data.zones).sort(),
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    addBatchHistoryRecord({
+      success: result.success,
+      failed: result.failed,
+      summary,
+    });
+    setRefreshKey((k) => k + 1);
   };
 
   const copyShelfNumber = () => {
@@ -680,6 +715,58 @@ export default function Register() {
               </li>
             </ul>
           </div>
+
+          {todayBatchHistory.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-dark-700 flex items-center gap-2">
+                  <History className="w-5 h-5 text-primary-500" />
+                  今日交接记录
+                </h3>
+                <span className="px-2 py-0.5 bg-primary-100 text-primary-600 text-xs font-bold rounded-full">
+                  {todayBatchHistory.length} 批
+                </span>
+              </div>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {todayBatchHistory.map((record, index) => (
+                  <div
+                    key={record.id}
+                    className="p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => setShowHistoryModal(true)}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-mono text-dark-400">
+                        {record.batchNo.slice(-6)}
+                      </span>
+                      <span className="text-xs text-dark-500">
+                        {formatDate(record.createdAt).slice(11)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-primary-600">
+                        {record.successCount} 件
+                      </span>
+                      {record.failedCount > 0 && (
+                        <span className="text-xs text-red-500">
+                          失败 {record.failedCount}
+                        </span>
+                      )}
+                      <span className="text-xs text-dark-400 ml-auto">
+                        {record.summary.length} 家
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setShowHistoryModal(true)}
+                className="w-full mt-3 py-2 text-sm text-primary-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+              >
+                <Calendar className="w-4 h-4" />
+                查看详细交接记录
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -827,6 +914,115 @@ export default function Register() {
               >
                 完成
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-primary-400 to-primary-600 rounded-xl flex items-center justify-center">
+                  <History className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-dark-800">今日交接记录</h2>
+                  <p className="text-sm text-dark-500">
+                    共 {todayBatchHistory.length} 批 / 总入库{' '}
+                    {todayBatchHistory.reduce((s, r) => s + r.successCount, 0)} 件
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 text-dark-500 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-100px)]">
+              {todayBatchHistory.length === 0 ? (
+                <div className="py-16 text-center">
+                  <History className="w-16 h-16 text-gray-200 mx-auto mb-4" />
+                  <p className="text-dark-400">今日暂无批量入库记录</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {todayBatchHistory.map((record, idx) => (
+                    <div
+                      key={record.id}
+                      className="border border-gray-200 rounded-2xl overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between p-4 bg-gray-50">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-primary-500 text-white rounded-xl flex items-center justify-center font-bold">
+                            #{todayBatchHistory.length - idx}
+                          </div>
+                          <div>
+                            <p className="font-mono text-sm text-dark-400">
+                              批次号：{record.batchNo}
+                            </p>
+                            <p className="text-lg font-bold text-dark-800">
+                              {formatDate(record.createdAt)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-green-600">
+                              {record.successCount}
+                            </p>
+                            <p className="text-xs text-green-600">成功</p>
+                          </div>
+                          {record.failedCount > 0 && (
+                            <div className="text-center">
+                              <p className="text-2xl font-bold text-red-600">
+                                {record.failedCount}
+                              </p>
+                              <p className="text-xs text-red-600">失败</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Truck className="w-4 h-4 text-dark-400" />
+                          <span className="text-sm font-medium text-dark-700">
+                            快递公司分布
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {record.summary.map((item, sIdx) => (
+                            <div
+                              key={item.courierCompany}
+                              className="flex items-center gap-3 p-2.5 bg-gray-50 rounded-lg"
+                            >
+                              <span className="w-6 h-6 bg-white text-primary-600 rounded-full flex items-center justify-center text-xs font-bold border border-primary-200">
+                                {sIdx + 1}
+                              </span>
+                              <span className="font-medium text-dark-700 text-sm flex-1">
+                                {item.courierCompany}
+                              </span>
+                              <span className="px-2.5 py-1 bg-primary-100 text-primary-600 rounded-full text-xs font-bold">
+                                {item.count} 件
+                              </span>
+                              <div className="flex items-center gap-1">
+                                <MapPin className="w-3.5 h-3.5 text-dark-400 shrink-0" />
+                                <span className="text-xs text-dark-500">
+                                  {item.zones.join('、')}区
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

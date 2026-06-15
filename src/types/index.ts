@@ -71,6 +71,18 @@ export interface BatchSummaryItem {
   zones: string[];
 }
 
+export interface BatchHistoryRecord {
+  id: string;
+  batchNo: string;
+  createdAt: number;
+  date: string;
+  totalCount: number;
+  successCount: number;
+  failedCount: number;
+  summary: BatchSummaryItem[];
+  operator?: string;
+}
+
 export interface DailyStats {
   todayReceived: number;
   todayPicked: number;

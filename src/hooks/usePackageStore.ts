@@ -8,6 +8,8 @@ import type {
   FollowUpRecord,
   BatchEntryItem,
   ShelfLayerDetail,
+  BatchHistoryRecord,
+  BatchSummaryItem,
 } from '@/types';
 import { DEFAULT_SHELF_CONFIG } from '@/types';
 import {
@@ -18,8 +20,12 @@ import {
   generateId,
   isOverdue,
   isToday,
+  getBatchHistory,
+  addBatchHistory,
+  getBatchHistoryByDate,
+  generateBatchNo,
 } from '@/utils/storage';
-import { generateShelfNumber, getShelfOverview, isShelfFull, getShelfLayerDetail } from '@/utils/shelf';
+import { generateShelfNumber, getShelfOverview, isShelfFull, getShelfLayerDetail, getAllEmptySlots, type EmptySlotInfo } from '@/utils/shelf';
 
 interface BatchAddResult {
   success: Package[];
@@ -72,6 +78,23 @@ interface PackageState {
   getTodayReceivedPackages: () => Package[];
 
   getShelfLayerDetail: (zone: string, floor: number) => ShelfLayerDetail;
+
+  getAllEmptySlots: () => EmptySlotInfo[];
+
+  movePackage: (
+    packageId: string,
+    newShelfNumber: string
+  ) => { success: boolean; error?: string };
+
+  addBatchHistoryRecord: (data: {
+    success: Package[];
+    failed: { item: BatchEntryItem; error: string }[];
+    summary: BatchSummaryItem[];
+  }) => BatchHistoryRecord;
+
+  getBatchHistory: () => BatchHistoryRecord[];
+
+  getTodayBatchHistory: () => BatchHistoryRecord[];
 }
 
 export const usePackageStore = create<PackageState>((set, get) => ({
@@ -318,5 +341,66 @@ export const usePackageStore = create<PackageState>((set, get) => ({
   getShelfLayerDetail: (zone, floor) => {
     const { packages, shelfConfig } = get();
     return getShelfLayerDetail(packages, shelfConfig, zone, floor);
+  },
+
+  getAllEmptySlots: () => {
+    const { packages, shelfConfig } = get();
+    return getAllEmptySlots(packages, shelfConfig);
+  },
+
+  movePackage: (packageId, newShelfNumber) => {
+    const { packages } = get();
+
+    const targetPackage = packages.find((p) => p.id === packageId);
+    if (!targetPackage) {
+      return { success: false, error: '包裹不存在' };
+    }
+
+    if (targetPackage.status !== 'pending') {
+      return { success: false, error: '包裹已取件，无法挪位' };
+    }
+
+    const conflict = packages.find(
+      (p) =>
+        p.id !== packageId &&
+        p.status === 'pending' &&
+        p.shelfNumber === newShelfNumber
+    );
+    if (conflict) {
+      return { success: false, error: `目标位置已被占用：${newShelfNumber}` };
+    }
+
+    const updated = packages.map((p) =>
+      p.id === packageId ? { ...p, shelfNumber: newShelfNumber } : p
+    );
+    set({ packages: updated });
+    savePackages(updated);
+    return { success: true };
+  },
+
+  addBatchHistoryRecord: ({ success, failed, summary }) => {
+    const now = Date.now();
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const record: BatchHistoryRecord = {
+      id: generateId(),
+      batchNo: generateBatchNo(),
+      createdAt: now,
+      date: dateStr,
+      totalCount: success.length + failed.length,
+      successCount: success.length,
+      failedCount: failed.length,
+      summary,
+    };
+    addBatchHistory(record);
+    return record;
+  },
+
+  getBatchHistory: () => getBatchHistory(),
+
+  getTodayBatchHistory: () => {
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    return getBatchHistoryByDate(dateStr);
   },
 }));
