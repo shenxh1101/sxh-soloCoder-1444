@@ -35,6 +35,7 @@ export default function Register() {
   );
   const addBatchHistoryRecord = usePackageStore((state) => state.addBatchHistoryRecord);
   const getTodayBatchHistory = usePackageStore((state) => state.getTodayBatchHistory);
+  const getBatchHistoryByDate = usePackageStore((state) => state.getBatchHistoryByDate);
 
   const [mode, setMode] = useState<Mode>('single');
   const [trackingNumber, setTrackingNumber] = useState('');
@@ -49,6 +50,9 @@ export default function Register() {
   } | null>(null);
   const [copied, setCopied] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [selectedHistoryDate, setSelectedHistoryDate] = useState<string>(
+    () => new Date().toISOString().split('T')[0]
+  );
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [batchItems, setBatchItems] = useState<BatchEntryItem[]>([]);
@@ -66,6 +70,29 @@ export default function Register() {
     const _ = refreshKey;
     return getTodayBatchHistory();
   }, [getTodayBatchHistory, refreshKey]);
+
+  const selectedDateBatchHistory = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _ = refreshKey;
+    return getBatchHistoryByDate(selectedHistoryDate);
+  }, [getBatchHistoryByDate, selectedHistoryDate, refreshKey]);
+
+  const handlePrevDay = () => {
+    const d = new Date(selectedHistoryDate);
+    d.setDate(d.getDate() - 1);
+    setSelectedHistoryDate(d.toISOString().split('T')[0]);
+  };
+
+  const handleNextDay = () => {
+    const d = new Date(selectedHistoryDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (d.getTime() >= today.getTime()) return;
+    d.setDate(d.getDate() + 1);
+    setSelectedHistoryDate(d.toISOString().split('T')[0]);
+  };
+
+  const isSelectedDateToday = selectedHistoryDate === new Date().toISOString().split('T')[0];
 
   const batchSummary = useMemo((): BatchSummaryItem[] => {
     if (!batchResult) return [];
@@ -928,30 +955,73 @@ export default function Register() {
                   <History className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-dark-800">今日交接记录</h2>
+                  <h2 className="text-xl font-bold text-dark-800">
+                    {isSelectedDateToday ? '今日' : selectedHistoryDate} 交接记录
+                  </h2>
                   <p className="text-sm text-dark-500">
-                    共 {todayBatchHistory.length} 批 / 总入库{' '}
-                    {todayBatchHistory.reduce((s, r) => s + r.successCount, 0)} 件
+                    共 {selectedDateBatchHistory.length} 批 / 总入库{' '}
+                    {selectedDateBatchHistory.reduce((s, r) => s + r.successCount, 0)} 件
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setShowHistoryModal(false)}
-                className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 text-dark-500 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handlePrevDay}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 text-dark-600 transition-colors"
+                  title="前一天"
+                >
+                  <ChevronRight className="w-5 h-5 rotate-180" />
+                </button>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400 pointer-events-none" />
+                  <input
+                    type="date"
+                    value={selectedHistoryDate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const today = new Date().toISOString().split('T')[0];
+                      if (val <= today) {
+                        setSelectedHistoryDate(val);
+                      }
+                    }}
+                    max={new Date().toISOString().split('T')[0]}
+                    className="pl-9 pr-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-100 outline-none bg-white"
+                  />
+                </div>
+                <button
+                  onClick={handleNextDay}
+                  disabled={isSelectedDateToday}
+                  className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${
+                    isSelectedDateToday
+                      ? 'text-gray-300 cursor-not-allowed'
+                      : 'hover:bg-gray-100 text-dark-600'
+                  }`}
+                  title="后一天"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => setShowHistoryModal(false)}
+                  className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 text-dark-500 transition-colors ml-2"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-100px)]">
-              {todayBatchHistory.length === 0 ? (
+              {selectedDateBatchHistory.length === 0 ? (
                 <div className="py-16 text-center">
                   <History className="w-16 h-16 text-gray-200 mx-auto mb-4" />
-                  <p className="text-dark-400">今日暂无批量入库记录</p>
+                  <p className="text-dark-400">
+                    {isSelectedDateToday
+                      ? '今日暂无批量入库记录'
+                      : `${selectedHistoryDate} 暂无批量入库记录`}
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {todayBatchHistory.map((record, idx) => (
+                  {selectedDateBatchHistory.map((record, idx) => (
                     <div
                       key={record.id}
                       className="border border-gray-200 rounded-2xl overflow-hidden"
@@ -959,7 +1029,7 @@ export default function Register() {
                       <div className="flex items-center justify-between p-4 bg-gray-50">
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 bg-primary-500 text-white rounded-xl flex items-center justify-center font-bold">
-                            #{todayBatchHistory.length - idx}
+                            #{selectedDateBatchHistory.length - idx}
                           </div>
                           <div>
                             <p className="font-mono text-sm text-dark-400">

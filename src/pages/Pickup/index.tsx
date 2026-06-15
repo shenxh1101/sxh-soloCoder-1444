@@ -14,11 +14,13 @@ import {
   Phone,
   User,
   MapPin,
+  CheckCircle2,
+  X,
+  RotateCcw,
 } from 'lucide-react';
 import { usePackageStore } from '@/hooks/usePackageStore';
 import PackageCard from '@/components/PackageCard';
 import { isOverdue, getOverdueDays, formatDate } from '@/utils/storage';
-import type { Package as PackageType } from '@/types';
 
 type ViewMode = 'card' | 'list';
 
@@ -28,6 +30,7 @@ export default function Pickup() {
   const [filterOverdue, setFilterOverdue] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [filterTriggered, setFilterTriggered] = useState(0);
+  const [toast, setToast] = useState<{ type: 'success'; message: string } | null>(null);
 
   const searchPackages = usePackageStore((state) => state.searchPackages);
   const pickPackage = usePackageStore((state) => state.pickPackage);
@@ -72,12 +75,21 @@ export default function Pickup() {
 
   const handlePick = useCallback((id: string) => {
     if (!resultIds.has(id)) return;
+    const pkg = results.find((p) => p.id === id);
     pickPackage(id);
     setSelectedIds((prev) => {
       const next = prev.filter((i) => i !== id);
       return next.filter((i) => resultIds.has(i));
     });
-  }, [resultIds, pickPackage]);
+    if (pkg) {
+      const overdue = isOverdue(pkg.createdAt);
+      setToast({
+        type: 'success',
+        message: `${pkg.recipientName} 的${overdue ? '超期' : ''}包裹已取件（${pkg.shelfNumber}）`,
+      });
+      setTimeout(() => setToast(null), 2000);
+    }
+  }, [resultIds, pickPackage, results]);
 
   const handleSelect = useCallback((id: string) => {
     if (!resultIds.has(id)) return;
@@ -94,9 +106,19 @@ export default function Pickup() {
     if (safeIds.length !== validSelectedIds.length) {
       setSelectedIds(safeIds);
     }
+    const pickedNormal = safeIds.filter((id) => {
+      const pkg = results.find((p) => p.id === id);
+      return pkg && !isOverdue(pkg.createdAt);
+    }).length;
+    const pickedOverdue = safeIds.length - pickedNormal;
     pickPackages(safeIds);
     setSelectedIds([]);
-  }, [validSelectedIds, resultIds, pickPackages]);
+    setToast({
+      type: 'success',
+      message: `成功取件 ${safeIds.length} 件${pickedOverdue > 0 ? `（含超期件 ${pickedOverdue} 件）` : ''}`,
+    });
+    setTimeout(() => setToast(null), 2500);
+  }, [validSelectedIds, resultIds, pickPackages, results]);
 
   const selectAll = useCallback(() => {
     if (results.length === 0) return;
@@ -168,10 +190,31 @@ export default function Pickup() {
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="输入手机尾号、单号、姓名或货架号搜索..."
-              className="w-full pl-12 pr-4 py-3.5 text-lg border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200"
+              className="w-full pl-12 pr-24 py-3.5 text-lg border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200"
               autoFocus
             />
+            {keyword && (
+              <button
+                onClick={() => setKeyword('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-dark-400 hover:text-dark-600 transition-colors"
+                title="清除搜索"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
+          {(keyword || filterOverdue) && (
+            <button
+              onClick={() => {
+                setKeyword('');
+                setFilterOverdue(false);
+              }}
+              className="px-4 py-3.5 bg-gray-100 hover:bg-gray-200 text-dark-600 rounded-xl font-medium flex items-center gap-1.5 transition-all duration-200 whitespace-nowrap"
+            >
+              <RotateCcw className="w-4 h-4" />
+              重置筛选
+            </button>
+          )}
           <button
             onClick={() => setFilterOverdue(!filterOverdue)}
             className={`px-5 py-3.5 rounded-xl font-medium flex items-center gap-2 transition-all duration-200 whitespace-nowrap ${
@@ -391,6 +434,21 @@ export default function Pickup() {
                 ? `已选 ${validSelectedIds.length} 条，可点击右上角"批量取件"`
                 : '支持批量操作'}
             </span>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-bounce">
+          <div className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl shadow-xl shadow-green-200">
+            <CheckCircle2 className="w-5 h-5 shrink-0" />
+            <span className="font-medium">{toast.message}</span>
+            <button
+              onClick={() => setToast(null)}
+              className="ml-2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}

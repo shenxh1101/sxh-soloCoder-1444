@@ -25,7 +25,7 @@ import {
   getBatchHistoryByDate,
   generateBatchNo,
 } from '@/utils/storage';
-import { generateShelfNumber, getShelfOverview, isShelfFull, getShelfLayerDetail, getAllEmptySlots, type EmptySlotInfo } from '@/utils/shelf';
+import { generateShelfNumber, getShelfOverview, isShelfFull, getShelfLayerDetail, getAllEmptySlots, type EmptySlotInfo, calculateRearrangeSuggestions, type RearrangeSuggestion } from '@/utils/shelf';
 
 interface BatchAddResult {
   success: Package[];
@@ -95,6 +95,10 @@ interface PackageState {
   getBatchHistory: () => BatchHistoryRecord[];
 
   getTodayBatchHistory: () => BatchHistoryRecord[];
+
+  getBatchHistoryByDate: (dateStr: string) => BatchHistoryRecord[];
+
+  getRearrangeSuggestions: (targetSlot: EmptySlotInfo) => RearrangeSuggestion;
 }
 
 export const usePackageStore = create<PackageState>((set, get) => ({
@@ -402,5 +406,12 @@ export const usePackageStore = create<PackageState>((set, get) => ({
     const today = new Date();
     const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     return getBatchHistoryByDate(dateStr);
+  },
+
+  getBatchHistoryByDate: (dateStr) => getBatchHistoryByDate(dateStr),
+
+  getRearrangeSuggestions: (targetSlot) => {
+    const { packages, shelfConfig } = get();
+    return calculateRearrangeSuggestions(packages, shelfConfig, targetSlot);
   },
 }));

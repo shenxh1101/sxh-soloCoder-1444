@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Layers, Package, X, Phone, User, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Layers, Package, X, Phone, User, ArrowRight, CheckCircle2, AlertCircle, Lightbulb, Sparkles, ChevronLeft, MapPin } from 'lucide-react';
 import { usePackageStore } from '@/hooks/usePackageStore';
 import type { ShelfSlotInfo, ShelfLayerDetail, Package as PackageType } from '@/types';
 import { formatDate, isOverdue, getOverdueDays } from '@/utils/storage';
-import { parseShelfNumber, type EmptySlotInfo } from '@/utils/shelf';
+import { parseShelfNumber, type EmptySlotInfo, buildShelfNumber, type RearrangeSuggestion } from '@/utils/shelf';
 
 export default function ShelfBoard() {
   const getShelfOverview = usePackageStore((state) => state.getShelfOverview);
@@ -196,13 +196,20 @@ function ShelfLayerModal({
 
   const getAllEmptySlots = usePackageStore((state) => state.getAllEmptySlots);
   const movePackage = usePackageStore((state) => state.movePackage);
+  const getRearrangeSuggestions = usePackageStore((state) => state.getRearrangeSuggestions);
 
   const [movingPkg, setMovingPkg] = useState<PackageType | null>(null);
   const [targetZone, setTargetZone] = useState<string>('');
   const [targetFloor, setTargetFloor] = useState<number | ''>('');
   const [moveStatus, setMoveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [selectedEmptySlot, setSelectedEmptySlot] = useState<EmptySlotInfo | null>(null);
 
   const allEmptySlots = useMemo(() => getAllEmptySlots(), [getAllEmptySlots, detail]);
+
+  const rearrangeSuggestions = useMemo((): RearrangeSuggestion | null => {
+    if (!selectedEmptySlot) return null;
+    return getRearrangeSuggestions(selectedEmptySlot);
+  }, [selectedEmptySlot, getRearrangeSuggestions]);
 
   useEffect(() => {
     if (movingPkg) {
@@ -295,6 +302,8 @@ function ShelfLayerModal({
                 {detail.slots.map((slot) => {
                   const pkg = slot.package;
                   const isOverduePkg = pkg && isOverdue(pkg.createdAt);
+                  const slotShelfNumber = buildShelfNumber(detail.zone, detail.floor, slot.slotNumber);
+                  const isSelectedEmpty = !pkg && selectedEmptySlot?.shelfNumber === slotShelfNumber;
                   return (
                     <div
                       key={slot.slotNumber}
@@ -303,13 +312,27 @@ function ShelfLayerModal({
                           ? isOverduePkg
                             ? 'bg-red-50 border-red-300'
                             : 'bg-primary-50 border-primary-300'
-                          : 'bg-gray-50 border-gray-200 border-dashed'
+                          : isSelectedEmpty
+                          ? 'bg-purple-100 border-purple-500 border-solid cursor-pointer hover:bg-purple-200 shadow-md'
+                          : 'bg-gray-50 border-gray-200 border-dashed cursor-pointer hover:bg-purple-50 hover:border-purple-300'
                       }`}
                       title={
                         pkg
                           ? `${pkg.trackingNumber}\n${pkg.recipientName}\n${pkg.phoneFull || '尾号' + pkg.phoneLast4}`
-                          : `${slot.slotNumber}号 - 空闲`
+                          : `${slot.slotNumber}号 - 空闲（点击查看腾挪建议）`
                       }
+                      onClick={() => {
+                        if (!pkg) {
+                          const slotInfo: EmptySlotInfo = {
+                            zone: detail.zone,
+                            floor: detail.floor,
+                            slot: slot.slotNumber,
+                            shelfNumber: slotShelfNumber,
+                          };
+                          setSelectedEmptySlot(slotInfo);
+                          setMovingPkg(null);
+                        }
+                      }}
                     >
                       <span
                         className={`text-xs font-bold ${
@@ -332,6 +355,116 @@ function ShelfLayerModal({
                   );
                 })}
               </div>
+
+              {selectedEmptySlot && rearrangeSuggestions && (
+                <div className="mt-6 pt-6 border-t border-gray-100">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-gradient-to-br from-purple-400 to-purple-600 rounded-lg flex items-center justify-center">
+                        <Lightbulb className="w-4 h-4 text-white" />
+                      </div>
+                      <h3 className="text-sm font-bold text-dark-700">
+                        空位 <span className="font-mono text-purple-600">{selectedEmptySlot.shelfNumber}</span> 腾挪建议
+                      </h3>
+                    </div>
+                    <button
+                      onClick={() => setSelectedEmptySlot(null)}
+                      className="text-xs text-dark-400 hover:text-dark-600 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+                    >
+                      收起建议
+                    </button>
+                  </div>
+
+                  {rearrangeSuggestions.packagesToMove.length === 0 ? (
+                    <div className="py-8 text-center">
+                      <Sparkles className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                      <p className="text-dark-400 text-sm">当前没有特别适合挪到这个位置的包裹</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {rearrangeSuggestions.packagesToMove.map(({ pkg, reason, priority }, idx) => {
+                        const parsed = parseShelfNumber(pkg.shelfNumber);
+                        const handleRearrange = () => {
+                          const result = movePackage(pkg.id, selectedEmptySlot.shelfNumber);
+                          if (result.success) {
+                            setMoveStatus({
+                              type: 'success',
+                              message: `挪位成功：${pkg.shelfNumber} → ${selectedEmptySlot.shelfNumber}`,
+                            });
+                            setTimeout(() => {
+                              setMoveStatus(null);
+                              setSelectedEmptySlot(null);
+                            }, 1500);
+                          } else {
+                            setMoveStatus({
+                              type: 'error',
+                              message: result.error || '挪位失败',
+                            });
+                          }
+                        };
+                        return (
+                          <div
+                            key={pkg.id}
+                            className="flex items-center gap-3 p-3 bg-gradient-to-r from-purple-50 to-white border border-purple-100 rounded-xl hover:shadow-md transition-all"
+                          >
+                            <div className="w-8 h-8 bg-purple-500 text-white rounded-lg flex items-center justify-center font-bold shrink-0 text-sm">
+                              {idx + 1}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-sm font-semibold text-dark-700 truncate">
+                                  {pkg.trackingNumber}
+                                </span>
+                                <span className="px-2 py-0.5 bg-gray-100 text-dark-500 rounded text-[10px] font-medium">
+                                  {pkg.courierCompany}
+                                </span>
+                                {priority >= 80 && (
+                                  <Sparkles className="w-3.5 h-3.5 text-yellow-500" />
+                                )}
+                              </div>
+                              <p className="text-xs text-purple-600 mt-1 flex items-center gap-1">
+                                <Lightbulb className="w-3 h-3 shrink-0" />
+                                {reason}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="text-right mr-2">
+                                <div className="flex items-center gap-1 text-xs text-dark-500">
+                                  <MapPin className="w-3 h-3" />
+                                  <span className="font-mono font-bold text-dark-700">
+                                    {pkg.shelfNumber}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-dark-400">
+                                  {parsed.zone}区 {parsed.floor}层
+                                </p>
+                              </div>
+                              <ArrowRight className="w-4 h-4 text-dark-300" />
+                              <div className="text-left ml-2">
+                                <div className="flex items-center gap-1 text-xs text-purple-600">
+                                  <MapPin className="w-3 h-3" />
+                                  <span className="font-mono font-bold">
+                                    {selectedEmptySlot.shelfNumber}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-purple-400">
+                                  目标位置
+                                </p>
+                              </div>
+                              <button
+                                onClick={handleRearrange}
+                                className="ml-3 px-3 py-1.5 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white text-xs font-medium rounded-lg transition-colors shadow-sm hover:shadow-md"
+                              >
+                                一键挪位
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {usedCount > 0 && (
                 <div className="mt-6 pt-6 border-t border-gray-100">
