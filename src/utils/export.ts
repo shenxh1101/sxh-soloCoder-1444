@@ -1,4 +1,5 @@
 import type { Package } from '@/types';
+import { FOLLOW_UP_RESULT_LABELS } from '@/types';
 import { formatDate } from './storage';
 
 export function exportToCSV(packages: Package[]): void {
@@ -6,23 +7,45 @@ export function exportToCSV(packages: Package[]): void {
     '快递单号',
     '收件人姓名',
     '手机尾号',
+    '完整手机号',
     '快递公司',
     '货架号',
     '状态',
     '入库时间',
     '取件时间',
+    '超期天数',
+    '催件次数',
+    '上次催件结果',
+    '上次催件时间',
+    '催件备注',
   ];
 
-  const rows = packages.map((pkg) => [
-    pkg.trackingNumber,
-    pkg.recipientName,
-    pkg.phoneLast4,
-    pkg.courierCompany,
-    pkg.shelfNumber,
-    pkg.status === 'pending' ? '待取件' : '已取件',
-    formatDate(pkg.createdAt),
-    pkg.pickedAt ? formatDate(pkg.pickedAt) : '',
-  ]);
+  const rows = packages.map((pkg) => {
+    const followUps = pkg.followUps || [];
+    const lastFollowUp =
+      followUps.length > 0 ? followUps[followUps.length - 1] : null;
+    const isPending = pkg.status === 'pending';
+    const overdueDays = isPending
+      ? Math.max(0, Math.floor((Date.now() - pkg.createdAt) / (24 * 60 * 60 * 1000)) - 3)
+      : '';
+
+    return [
+      pkg.trackingNumber,
+      pkg.recipientName,
+      pkg.phoneLast4,
+      pkg.phoneFull || '',
+      pkg.courierCompany,
+      pkg.shelfNumber,
+      pkg.status === 'pending' ? '待取件' : '已取件',
+      formatDate(pkg.createdAt),
+      pkg.pickedAt ? formatDate(pkg.pickedAt) : '',
+      overdueDays,
+      followUps.length,
+      lastFollowUp ? FOLLOW_UP_RESULT_LABELS[lastFollowUp.result] : '',
+      lastFollowUp ? formatDate(lastFollowUp.contactedAt) : '',
+      lastFollowUp?.note || '',
+    ];
+  });
 
   const csvContent = [
     headers.join(','),

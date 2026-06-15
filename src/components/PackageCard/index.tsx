@@ -99,7 +99,15 @@ export default function PackageCard({
         </div>
         <div className="flex items-center gap-2 text-dark-600">
           <Phone className="w-4 h-4 text-dark-400" />
-          <span>尾号 {pkg.phoneLast4}</span>
+          <span>
+            {pkg.phoneFull ? (
+              <span className="font-mono text-primary-600 font-medium">
+                {pkg.phoneFull}
+              </span>
+            ) : (
+              `尾号 ${pkg.phoneLast4}`
+            )}
+          </span>
         </div>
         <div className="flex items-center gap-2 text-dark-600">
           <Clock className="w-4 h-4 text-dark-400" />

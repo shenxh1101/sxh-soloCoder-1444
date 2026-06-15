@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, CheckCheck, PackageSearch, Filter } from 'lucide-react';
 import { usePackageStore } from '@/hooks/usePackageStore';
 import PackageCard from '@/components/PackageCard';
@@ -23,6 +23,10 @@ export default function Pickup() {
     return pkgs.sort((a, b) => a.createdAt - b.createdAt);
   }, [keyword, filterOverdue, searchPackages]);
 
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [keyword, filterOverdue]);
+
   const handlePick = (id: string) => {
     pickPackage(id);
     setSelectedIds((prev) => prev.filter((i) => i !== id));
@@ -42,12 +46,15 @@ export default function Pickup() {
   };
 
   const selectAll = () => {
-    if (selectedIds.length === results.length) {
+    const resultIds = results.map((p) => p.id);
+    if (selectedIds.length === results.length && results.length > 0) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(results.map((p) => p.id));
+      setSelectedIds(resultIds);
     }
   };
+
+  const isAllSelected = results.length > 0 && selectedIds.length === results.length;
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -85,14 +92,17 @@ export default function Pickup() {
         {selectedIds.length > 0 && (
           <div className="mt-4 flex items-center justify-between p-4 bg-primary-50 rounded-xl border border-primary-200">
             <span className="text-primary-700 font-medium">
-              已选择 {selectedIds.length} 个包裹
+              已选择 <span className="font-bold">{selectedIds.length}</span> 个包裹
+              <span className="text-primary-500 text-sm ml-2">
+                （仅当前筛选结果）
+              </span>
             </span>
             <div className="flex gap-3">
               <button
                 onClick={selectAll}
                 className="px-4 py-2 text-sm text-primary-600 hover:bg-primary-100 rounded-lg transition-colors"
               >
-                {selectedIds.length === results.length ? '取消全选' : '全选'}
+                {isAllSelected ? '取消全选' : '全选'}
               </button>
               <button
                 onClick={handleBatchPick}
@@ -115,7 +125,7 @@ export default function Pickup() {
             onClick={selectAll}
             className="text-sm text-primary-500 hover:text-primary-600 font-medium"
           >
-            {selectedIds.length === results.length ? '取消全选' : '全选'}
+            {isAllSelected ? '取消全选' : '全选'}
           </button>
         )}
       </div>

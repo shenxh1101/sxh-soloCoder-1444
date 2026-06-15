@@ -1,19 +1,56 @@
+export interface FollowUpRecord {
+  id: string;
+  packageId: string;
+  contactedAt: number;
+  result: 'not_answered' | 'will_pick' | 'delayed' | 'return_requested' | 'other';
+  note: string;
+  nextReminderAt?: number;
+}
+
 export interface Package {
   id: string;
   trackingNumber: string;
   recipientName: string;
   phoneLast4: string;
+  phoneFull?: string;
   courierCompany: string;
   shelfNumber: string;
   status: 'pending' | 'picked';
   createdAt: number;
   pickedAt?: number;
+  followUps?: FollowUpRecord[];
 }
 
 export interface ShelfConfig {
   zones: string[];
   floors: number;
   slotsPerFloor: number;
+}
+
+export interface ShelfSlotInfo {
+  zone: string;
+  floor: number;
+  totalSlots: number;
+  usedSlots: number;
+  availableSlots: number;
+}
+
+export interface ShelfOverview {
+  totalCapacity: number;
+  totalUsed: number;
+  totalAvailable: number;
+  zoneInfo: Map<string, ShelfSlotInfo[]>;
+  isFull: boolean;
+}
+
+export interface BatchEntryItem {
+  trackingNumber: string;
+  recipientName: string;
+  phoneLast4: string;
+  phoneFull?: string;
+  courierCompany: string;
+  shelfNumber?: string;
+  error?: string;
 }
 
 export interface DailyStats {
@@ -40,6 +77,14 @@ export const COURIER_COMPANIES = [
   '极兔速递',
   '德邦快递',
 ];
+
+export const FOLLOW_UP_RESULT_LABELS: Record<FollowUpRecord['result'], string> = {
+  not_answered: '无人接听',
+  will_pick: '将尽快取件',
+  delayed: '需延迟取件',
+  return_requested: '要求退回',
+  other: '其他',
+};
 
 export const DEFAULT_SHELF_CONFIG: ShelfConfig = {
   zones: ['A', 'B', 'C'],

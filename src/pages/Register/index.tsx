@@ -1,15 +1,38 @@
 import { useState, useRef, useEffect } from 'react';
-import { Copy, Check, PackagePlus, AlertCircle } from 'lucide-react';
+import {
+  Copy,
+  Check,
+  PackagePlus,
+  AlertCircle,
+  Layers,
+  Plus,
+  Trash2,
+  FileText,
+  Printer,
+  X,
+  ChevronRight,
+  Phone,
+} from 'lucide-react';
 import { usePackageStore } from '@/hooks/usePackageStore';
-import { COURIER_COMPANIES } from '@/types';
+import { COURIER_COMPANIES, type BatchEntryItem, type Package } from '@/types';
+import { formatDate } from '@/utils/storage';
+
+type Mode = 'single' | 'batch';
 
 export default function Register() {
   const addPackage = usePackageStore((state) => state.addPackage);
-  const packages = usePackageStore((state) => state.packages);
+  const batchAddPackages = usePackageStore((state) => state.batchAddPackages);
+  const isShelfFull = usePackageStore((state) => state.isShelfFull);
+  const getShelfOverview = usePackageStore((state) => state.getShelfOverview);
+  const getTodayReceivedPackages = usePackageStore(
+    (state) => state.getTodayReceivedPackages
+  );
 
+  const [mode, setMode] = useState<Mode>('single');
   const [trackingNumber, setTrackingNumber] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [phoneLast4, setPhoneLast4] = useState('');
+  const [phoneFull, setPhoneFull] = useState('');
   const [courierCompany, setCourierCompany] = useState(COURIER_COMPANIES[0]);
   const [error, setError] = useState('');
   const [successPackage, setSuccessPackage] = useState<{
@@ -18,57 +41,145 @@ export default function Register() {
   } | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const [batchItems, setBatchItems] = useState<BatchEntryItem[]>([]);
+  const [batchResult, setBatchResult] = useState<{
+    success: Package[];
+    failed: { item: BatchEntryItem; error: string }[];
+  } | null>(null);
+  const [showBatchResult, setShowBatchResult] = useState(false);
+
   const trackingInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    trackingInputRef.current?.focus();
-  }, []);
+    if (mode === 'single') {
+      trackingInputRef.current?.focus();
+    }
+  }, [mode]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const shelfOverview = getShelfOverview();
+  const shelfFull = isShelfFull();
+
+  const validateItem = (item: Omit<BatchEntryItem, 'shelfNumber' | 'error'>): string | null => {
+    if (!item.trackingNumber.trim()) return '快递单号不能为空';
+    if (!item.recipientName.trim()) return '收件人姓名不能为空';
+    if (!/^\d{4}$/.test(item.phoneLast4)) return '手机尾号格式不正确';
+    return null;
+  };
+
+  const handleSingleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccessPackage(null);
 
-    if (!trackingNumber.trim()) {
-      setError('请输入快递单号');
-      return;
-    }
-    if (!recipientName.trim()) {
-      setError('请输入收件人姓名');
-      return;
-    }
-    if (!/^\d{4}$/.test(phoneLast4)) {
-      setError('请输入正确的4位手机尾号');
+    if (shelfFull) {
+      setError('货架库位已满，请先清理已取件包裹或扩大货架容量');
       return;
     }
 
-    const duplicate = packages.find(
-      (p) =>
-        p.trackingNumber === trackingNumber.trim() && p.status === 'pending'
-    );
-    if (duplicate) {
-      setError(`该单号已存在，货架号：${duplicate.shelfNumber}`);
+    const validationError = validateItem({
+      trackingNumber,
+      recipientName,
+      phoneLast4,
+      phoneFull,
+      courierCompany,
+    });
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
-    const newPkg = addPackage({
+    const result = addPackage({
       trackingNumber: trackingNumber.trim(),
       recipientName: recipientName.trim(),
       phoneLast4,
+      phoneFull: phoneFull.trim() || undefined,
       courierCompany,
     });
 
+    if ('error' in result) {
+      setError(result.error);
+      return;
+    }
+
     setSuccessPackage({
-      shelfNumber: newPkg.shelfNumber,
-      trackingNumber: newPkg.trackingNumber,
+      shelfNumber: result.shelfNumber,
+      trackingNumber: result.trackingNumber,
     });
 
     setTrackingNumber('');
     setRecipientName('');
     setPhoneLast4('');
+    setPhoneFull('');
 
     setTimeout(() => {
       trackingInputRef.current?.focus();
     }, 100);
+  };
+
+  const handleAddBatchItem = () => {
+    setError('');
+
+    const validationError = validateItem({
+      trackingNumber,
+      recipientName,
+      phoneLast4,
+      phoneFull,
+      courierCompany,
+    });
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    const duplicate = batchItems.find(
+      (item) => item.trackingNumber.trim() === trackingNumber.trim()
+    );
+    if (duplicate) {
+      setError('该单号已在待入库列表中');
+      return;
+    }
+
+    setBatchItems((prev) => [
+      ...prev,
+      {
+        trackingNumber: trackingNumber.trim(),
+        recipientName: recipientName.trim(),
+        phoneLast4,
+        phoneFull: phoneFull.trim() || undefined,
+        courierCompany,
+      },
+    ]);
+
+    setTrackingNumber('');
+    setRecipientName('');
+    setPhoneLast4('');
+    setPhoneFull('');
+
+    setTimeout(() => {
+      trackingInputRef.current?.focus();
+    }, 100);
+  };
+
+  const handleRemoveBatchItem = (index: number) => {
+    setBatchItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleBatchSubmit = () => {
+    if (batchItems.length === 0) {
+      setError('请先添加至少一个包裹');
+      return;
+    }
+
+    if (shelfFull) {
+      setError('货架库位已满，请先清理已取件包裹或扩大货架容量');
+      return;
+    }
+
+    const result = batchAddPackages(batchItems);
+    setBatchResult(result);
+    setShowBatchResult(true);
+    setBatchItems([]);
   };
 
   const copyShelfNumber = () => {
@@ -79,172 +190,575 @@ export default function Register() {
     }
   };
 
+  const printBatchResult = () => {
+    if (!batchResult) return;
+    window.print();
+  };
+
+  const todayPackages = getTodayReceivedPackages();
+
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-dark-800 mb-2">包裹登记</h1>
-        <p className="text-dark-500">录入快递信息，系统自动分配货架号</p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2">
-          <div className="bg-white rounded-2xl shadow-card p-8">
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-dark-700 mb-2">
-                  快递单号
-                </label>
-                <input
-                  ref={trackingInputRef}
-                  type="text"
-                  value={trackingNumber}
-                  onChange={(e) => setTrackingNumber(e.target.value)}
-                  placeholder="请输入或扫描快递单号"
-                  className="w-full px-4 py-3 text-lg border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-dark-700 mb-2">
-                    收件人姓名
-                  </label>
-                  <input
-                    type="text"
-                    value={recipientName}
-                    onChange={(e) => setRecipientName(e.target.value)}
-                    placeholder="请输入收件人姓名"
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-dark-700 mb-2">
-                    手机尾号
-                  </label>
-                  <input
-                    type="text"
-                    value={phoneLast4}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, '').slice(0, 4);
-                      setPhoneLast4(val);
-                    }}
-                    placeholder="后4位数字"
-                    maxLength={4}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200 font-mono text-lg"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-dark-700 mb-2">
-                  快递公司
-                </label>
-                <select
-                  value={courierCompany}
-                  onChange={(e) => setCourierCompany(e.target.value)}
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200 bg-white"
-                >
-                  {COURIER_COMPANIES.map((company) => (
-                    <option key={company} value={company}>
-                      {company}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {error && (
-                <div className="flex items-center gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600">
-                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                  <span className="text-sm">{error}</span>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="w-full py-4 bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 text-white font-semibold text-lg rounded-xl shadow-lg shadow-primary-200 hover:shadow-xl hover:shadow-primary-300 transition-all duration-200 flex items-center justify-center gap-2"
-              >
-                <PackagePlus className="w-6 h-6" />
-                登记入库
-              </button>
-            </form>
-          </div>
-        </div>
-
-        <div>
-          <div
-            className={`bg-gradient-to-br from-primary-400 to-primary-600 rounded-2xl p-6 shadow-xl shadow-primary-200 sticky top-8 transition-all duration-500 ${
-              successPackage ? 'scale-100 opacity-100' : 'scale-95 opacity-70'
-            }`}
-          >
-            <p className="text-white/80 text-sm font-medium mb-1">货架号</p>
-            <div
-              className={`text-5xl font-bold text-white font-mono mb-4 transition-all duration-300 ${
-                successPackage ? 'animate-bounce' : ''
+    <div className="max-w-6xl mx-auto">
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-2xl font-bold text-dark-800">包裹登记</h1>
+          <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
+            <button
+              onClick={() => setMode('single')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                mode === 'single'
+                  ? 'bg-white text-primary-600 shadow-sm'
+                  : 'text-dark-500 hover:text-dark-700'
               }`}
             >
-              {successPackage ? successPackage.shelfNumber : '--'}
-            </div>
+              <PackagePlus className="w-4 h-4" />
+              单件入库
+            </button>
+            <button
+              onClick={() => setMode('batch')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                mode === 'batch'
+                  ? 'bg-white text-primary-600 shadow-sm'
+                  : 'text-dark-500 hover:text-dark-700'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              批量入库
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <p className="text-dark-500">录入快递信息，系统自动分配货架号</p>
+          <div
+            className={`px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${
+              shelfFull
+                ? 'bg-red-100 text-red-600'
+                : 'bg-green-100 text-green-600'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                shelfFull ? 'bg-red-500 animate-pulse' : 'bg-green-500'
+              }`}
+            />
+            {shelfFull
+              ? '库位已满'
+              : `剩余 ${shelfOverview.totalAvailable} / ${shelfOverview.totalCapacity} 位`}
+          </div>
+        </div>
+      </div>
 
-            {successPackage && (
-              <>
-                <div className="bg-white/20 rounded-xl p-4 mb-4">
-                  <p className="text-white/70 text-xs mb-1">快递单号</p>
-                  <p className="text-white font-mono text-sm">
-                    {successPackage.trackingNumber}
-                  </p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          {mode === 'single' ? (
+            <div className="bg-white rounded-2xl shadow-card p-6">
+              <form onSubmit={handleSingleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-dark-700 mb-2">
+                    快递单号
+                  </label>
+                  <input
+                    ref={trackingInputRef}
+                    type="text"
+                    value={trackingNumber}
+                    onChange={(e) => setTrackingNumber(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && trackingNumber.trim()) {
+                        e.preventDefault();
+                        nameInputRef.current?.focus();
+                      }
+                    }}
+                    placeholder="请输入或扫描快递单号"
+                    className="w-full px-4 py-3 text-lg border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200"
+                  />
                 </div>
 
-                <button
-                  onClick={copyShelfNumber}
-                  className="w-full py-3 bg-white/20 hover:bg-white/30 text-white font-medium rounded-xl transition-colors duration-200 flex items-center justify-center gap-2"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-5 h-5" />
-                      已复制
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-5 h-5" />
-                      复制货架号
-                    </>
-                  )}
-                </button>
-              </>
-            )}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-dark-700 mb-2">
+                      收件人姓名
+                    </label>
+                    <input
+                      ref={nameInputRef}
+                      type="text"
+                      value={recipientName}
+                      onChange={(e) => setRecipientName(e.target.value)}
+                      placeholder="请输入收件人姓名"
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-dark-700 mb-2">
+                      手机尾号
+                    </label>
+                    <input
+                      type="text"
+                      value={phoneLast4}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                        setPhoneLast4(val);
+                      }}
+                      placeholder="后4位数字"
+                      maxLength={4}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200 font-mono text-lg"
+                    />
+                  </div>
+                </div>
 
-            {!successPackage && (
-              <p className="text-white/60 text-sm text-center mt-4">
-                登记成功后此处显示货架号
+                <div>
+                  <label className="block text-sm font-medium text-dark-700 mb-2">
+                    <span className="flex items-center gap-1">
+                      <Phone className="w-4 h-4" />
+                      完整手机号 <span className="text-dark-400 font-normal">(选填，用于催件)</span>
+                    </span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={phoneFull}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 11);
+                      setPhoneFull(val);
+                    }}
+                    placeholder="11位手机号，超期时方便电话联系"
+                    maxLength={11}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-dark-700 mb-2">
+                    快递公司
+                  </label>
+                  <select
+                    value={courierCompany}
+                    onChange={(e) => setCourierCompany(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200 bg-white"
+                  >
+                    {COURIER_COMPANIES.map((company) => (
+                      <option key={company} value={company}>
+                        {company}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {error && (
+                  <div className="flex items-center gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600">
+                    <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                    <span className="text-sm">{error}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={shelfFull}
+                  className="w-full py-4 bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed text-white font-semibold text-lg rounded-xl shadow-lg shadow-primary-200 disabled:shadow-none hover:shadow-xl hover:shadow-primary-300 disabled:hover:shadow-none transition-all duration-200 flex items-center justify-center gap-2"
+                >
+                  <PackagePlus className="w-6 h-6" />
+                  {shelfFull ? '库位已满，无法入库' : '登记入库'}
+                </button>
+              </form>
+            </div>
+          ) : (
+            <>
+              <div className="bg-white rounded-2xl shadow-card p-6 mb-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-dark-800">
+                    录入包裹信息
+                  </h2>
+                  <span className="px-3 py-1 bg-primary-100 text-primary-600 rounded-full text-sm font-medium">
+                    待入库 {batchItems.length} 件
+                  </span>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-dark-700 mb-2">
+                      快递单号
+                    </label>
+                    <input
+                      ref={trackingInputRef}
+                      type="text"
+                      value={trackingNumber}
+                      onChange={(e) => setTrackingNumber(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && trackingNumber.trim()) {
+                          e.preventDefault();
+                          nameInputRef.current?.focus();
+                        }
+                      }}
+                      placeholder="请输入或扫描快递单号，按回车跳转到姓名"
+                      className="w-full px-4 py-3 text-lg border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-dark-700 mb-2">
+                        收件人姓名
+                      </label>
+                      <input
+                        ref={nameInputRef}
+                        type="text"
+                        value={recipientName}
+                        onChange={(e) => setRecipientName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && recipientName.trim()) {
+                            e.preventDefault();
+                            handleAddBatchItem();
+                          }
+                        }}
+                        placeholder="请输入收件人姓名，按回车添加到列表"
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-dark-700 mb-2">
+                        手机尾号
+                      </label>
+                      <input
+                        type="text"
+                        value={phoneLast4}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                          setPhoneLast4(val);
+                        }}
+                        placeholder="后4位数字"
+                        maxLength={4}
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200 font-mono text-lg"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-dark-700 mb-2">
+                      <span className="flex items-center gap-1">
+                        <Phone className="w-4 h-4" />
+                        完整手机号 <span className="text-dark-400 font-normal">(选填)</span>
+                      </span>
+                    </label>
+                    <input
+                      type="tel"
+                      value={phoneFull}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 11);
+                        setPhoneFull(val);
+                      }}
+                      placeholder="11位手机号"
+                      maxLength={11}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-dark-700 mb-2">
+                      快递公司
+                    </label>
+                    <select
+                      value={courierCompany}
+                      onChange={(e) => setCourierCompany(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-primary-500 focus:ring-4 focus:ring-primary-100 outline-none transition-all duration-200 bg-white"
+                    >
+                      {COURIER_COMPANIES.map((company) => (
+                        <option key={company} value={company}>
+                          {company}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {error && (
+                    <div className="flex items-center gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600">
+                      <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                      <span className="text-sm">{error}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleAddBatchItem}
+                    disabled={shelfFull}
+                    className="w-full py-3 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-400 text-dark-700 font-medium rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-5 h-5" />
+                    添加到待入库列表
+                  </button>
+                </div>
+              </div>
+
+              {batchItems.length > 0 && (
+                <div className="bg-white rounded-2xl shadow-card p-6 mb-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-dark-800">
+                      待入库列表
+                    </h2>
+                    <button
+                      onClick={() => setBatchItems([])}
+                      className="text-sm text-red-500 hover:text-red-600 font-medium"
+                    >
+                      清空列表
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {batchItems.map((item, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-4 p-3 bg-gray-50 rounded-xl"
+                      >
+                        <span className="w-6 h-6 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">
+                          {index + 1}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-mono text-sm font-medium text-dark-700 truncate">
+                            {item.trackingNumber}
+                          </p>
+                          <p className="text-xs text-dark-500">
+                            {item.recipientName} · 尾号{item.phoneLast4} · {item.courierCompany}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveBatchItem(index)}
+                          className="p-1.5 text-dark-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={handleBatchSubmit}
+                    disabled={shelfFull}
+                    className="w-full mt-4 py-4 bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed text-white font-semibold text-lg rounded-xl shadow-lg shadow-primary-200 disabled:shadow-none hover:shadow-xl hover:shadow-primary-300 disabled:hover:shadow-none transition-all duration-200 flex items-center justify-center gap-2"
+                  >
+                    <FileText className="w-6 h-6" />
+                    确认批量入库 ({batchItems.length} 件)
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          {mode === 'single' && (
+            <div
+              className={`bg-gradient-to-br from-primary-400 to-primary-600 rounded-2xl p-6 shadow-xl shadow-primary-200 sticky top-8 transition-all duration-500 ${
+                successPackage ? 'scale-100 opacity-100' : 'scale-95 opacity-70'
+              }`}
+            >
+              <p className="text-white/80 text-sm font-medium mb-1">货架号</p>
+              <div
+                className={`text-5xl font-bold text-white font-mono mb-4 transition-all duration-300 ${
+                  successPackage ? 'animate-bounce' : ''
+                }`}
+              >
+                {successPackage ? successPackage.shelfNumber : '--'}
+              </div>
+
+              {successPackage && (
+                <>
+                  <div className="bg-white/20 rounded-xl p-4 mb-4">
+                    <p className="text-white/70 text-xs mb-1">快递单号</p>
+                    <p className="text-white font-mono text-sm">
+                      {successPackage.trackingNumber}
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={copyShelfNumber}
+                    className="w-full py-3 bg-white/20 hover:bg-white/30 text-white font-medium rounded-xl transition-colors duration-200 flex items-center justify-center gap-2"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="w-5 h-5" />
+                        已复制
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-5 h-5" />
+                        复制货架号
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
+
+              {!successPackage && (
+                <p className="text-white/60 text-sm text-center mt-4">
+                  登记成功后此处显示货架号
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl shadow-card p-5">
+            <h3 className="font-semibold text-dark-700 mb-3 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-primary-500" />
+              今日入库清单
+            </h3>
+            {todayPackages.length === 0 ? (
+              <p className="text-sm text-dark-400 text-center py-4">
+                今日暂无入库记录
               </p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {todayPackages.map((pkg) => (
+                  <div
+                    key={pkg.id}
+                    className="flex items-center gap-2 text-sm p-2 rounded-lg hover:bg-gray-50"
+                  >
+                    <span className="font-mono font-bold text-primary-600 w-16">
+                      {pkg.shelfNumber}
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-dark-300" />
+                    <span className="font-mono text-dark-600 truncate flex-1">
+                      {pkg.trackingNumber.slice(-8)}
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        pkg.status === 'picked'
+                          ? 'bg-green-100 text-green-600'
+                          : 'bg-yellow-100 text-yellow-600'
+                      }`}
+                    >
+                      {pkg.status === 'picked' ? '已取' : '待取'}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
+            <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-dark-400">
+              共 {todayPackages.length} 件入库
+            </div>
           </div>
 
-          <div className="mt-6 bg-white rounded-2xl shadow-card p-6">
-            <h3 className="font-semibold text-dark-700 mb-4">小提示</h3>
+          <div className="bg-white rounded-2xl shadow-card p-5">
+            <h3 className="font-semibold text-dark-700 mb-4">操作提示</h3>
             <ul className="space-y-3 text-sm text-dark-500">
               <li className="flex items-start gap-2">
                 <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">
                   1
                 </span>
-                <span>扫描枪扫描单号后自动跳到姓名输入框</span>
+                <span>扫描枪扫描单号后按回车跳到姓名输入</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">
                   2
                 </span>
-                <span>按回车键快速提交登记</span>
+                <span>批量模式下，录入完一单按回车继续下一单</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="w-5 h-5 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold">
                   3
                 </span>
-                <span>货架号自动分配，先到先得</span>
+                <span>库位满时请先在取件页面标记已取件释放库位</span>
               </li>
             </ul>
           </div>
         </div>
       </div>
+
+      {showBatchResult && batchResult && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-dark-800">批量入库结果</h2>
+              <button
+                onClick={() => setShowBatchResult(false)}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5 text-dark-400" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="bg-green-50 rounded-xl p-4 text-center">
+                  <p className="text-3xl font-bold text-green-600">
+                    {batchResult.success.length}
+                  </p>
+                  <p className="text-sm text-green-600">成功入库</p>
+                </div>
+                <div className="bg-red-50 rounded-xl p-4 text-center">
+                  <p className="text-3xl font-bold text-red-600">
+                    {batchResult.failed.length}
+                  </p>
+                  <p className="text-sm text-red-600">入库失败</p>
+                </div>
+              </div>
+
+              {batchResult.success.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="font-semibold text-dark-700 mb-3">成功入库清单</h3>
+                  <div className="space-y-2">
+                    {batchResult.success.map((pkg) => (
+                      <div
+                        key={pkg.id}
+                        className="flex items-center gap-3 p-3 bg-green-50 rounded-xl"
+                      >
+                        <span className="w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center">
+                          <Check className="w-4 h-4" />
+                        </span>
+                        <div className="flex-1">
+                          <p className="font-mono text-sm font-medium text-dark-700">
+                            {pkg.trackingNumber}
+                          </p>
+                          <p className="text-xs text-dark-500">
+                            {pkg.recipientName} · {pkg.courierCompany}
+                          </p>
+                        </div>
+                        <span className="font-mono font-bold text-primary-600">
+                          {pkg.shelfNumber}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {batchResult.failed.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-dark-700 mb-3">入库失败清单</h3>
+                  <div className="space-y-2">
+                    {batchResult.failed.map((item, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-3 p-3 bg-red-50 rounded-xl"
+                      >
+                        <span className="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center">
+                          <X className="w-4 h-4" />
+                        </span>
+                        <div className="flex-1">
+                          <p className="font-mono text-sm font-medium text-dark-700">
+                            {item.item.trackingNumber}
+                          </p>
+                          <p className="text-xs text-red-600">{item.error}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="p-6 border-t border-gray-100 flex gap-3">
+              <button
+                onClick={printBatchResult}
+                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-dark-700 font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
+              >
+                <Printer className="w-5 h-5" />
+                打印入库清单
+              </button>
+              <button
+                onClick={() => setShowBatchResult(false)}
+                className="flex-1 py-3 bg-primary-500 hover:bg-primary-600 text-white font-medium rounded-xl transition-colors"
+              >
+                完成
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

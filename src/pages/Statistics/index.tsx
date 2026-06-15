@@ -6,15 +6,14 @@ import {
   AlertTriangle,
   Download,
   BarChart3,
-  Phone,
-  MapPin,
-  User,
   ChevronLeft,
   ChevronRight,
+  Phone,
 } from 'lucide-react';
 import { usePackageStore } from '@/hooks/usePackageStore';
 import StatCard from '@/components/StatCard';
-import { formatDate, getOverdueDays } from '@/utils/storage';
+import ShelfBoard from '@/components/ShelfBoard';
+import OverdueFollowUpCard from '@/components/OverdueFollowUpCard';
 import { exportToCSV, exportMonthlyStats } from '@/utils/export';
 
 export default function Statistics() {
@@ -57,8 +56,22 @@ export default function Statistics() {
 
   const monthTotal = courierStats.reduce((sum, s) => sum + s.count, 0);
 
+  const needsReminderCount = overduePackages.filter((pkg) => {
+    const followUps = pkg.followUps || [];
+    return followUps.some((f) => {
+      if (!f.nextReminderAt) return false;
+      const reminderDate = new Date(f.nextReminderAt);
+      const today = new Date();
+      return (
+        reminderDate.getFullYear() === today.getFullYear() &&
+        reminderDate.getMonth() === today.getMonth() &&
+        reminderDate.getDate() <= today.getDate()
+      );
+    });
+  }).length;
+
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-dark-800 mb-2">数据统计</h1>
         <p className="text-dark-500">查看运营数据，管理超期包裹</p>
@@ -95,7 +108,11 @@ export default function Statistics() {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <div className="lg:col-span-1">
+          <ShelfBoard />
+        </div>
+
         <div className="lg:col-span-2">
           <div className="bg-white rounded-2xl shadow-card p-6">
             <div className="flex items-center justify-between mb-6">
@@ -177,76 +194,53 @@ export default function Statistics() {
             </div>
           </div>
         </div>
-
-        <div>
-          <div className="bg-white rounded-2xl shadow-card p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-red-500" />
-                <h2 className="text-lg font-bold text-dark-800">超期包裹</h2>
-              </div>
-              <span className="px-2 py-1 bg-red-100 text-red-600 text-sm font-bold rounded-full">
-                {overduePackages.length}件
-              </span>
-            </div>
-
-            {overduePackages.length === 0 ? (
-              <div className="py-8 text-center">
-                <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <PackageCheck className="w-8 h-8 text-green-500" />
-                </div>
-                <p className="text-dark-400 text-sm">暂无超期包裹</p>
-                <p className="text-dark-300 text-xs mt-1">所有包裹都在正常取件周期内</p>
-              </div>
-            ) : (
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                {overduePackages.map((pkg) => {
-                  const overdueDays = getOverdueDays(pkg.createdAt);
-                  return (
-                    <div
-                      key={pkg.id}
-                      className="p-3 bg-red-50 border border-red-200 rounded-xl"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-mono text-sm font-semibold text-dark-700">
-                          {pkg.trackingNumber.slice(-8)}
-                        </span>
-                        <span className="px-2 py-0.5 bg-red-500 text-white text-xs font-bold rounded-full">
-                          {overdueDays}天
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1 text-xs text-dark-500 mb-1">
-                        <User className="w-3 h-3" />
-                        <span>{pkg.recipientName}</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-xs text-dark-500 mb-1">
-                        <Phone className="w-3 h-3" />
-                        <span>尾号{pkg.phoneLast4}</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-xs text-dark-500">
-                        <MapPin className="w-3 h-3" />
-                        <span className="font-semibold text-primary-600">
-                          {pkg.shelfNumber}
-                        </span>
-                      </div>
-                      <div className="mt-2 pt-2 border-t border-red-100 text-xs text-dark-400">
-                        入库：{formatDate(pkg.createdAt)}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
       </div>
 
-      <div className="mt-6 bg-white rounded-2xl shadow-card p-6">
+      <div className="bg-white rounded-2xl shadow-card p-6 mb-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-red-400 to-red-600 rounded-xl flex items-center justify-center">
+              <Phone className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-dark-800">超期催件管理</h2>
+              <p className="text-sm text-dark-500">
+                共 {overduePackages.length} 件超期包裹
+                {needsReminderCount > 0 && (
+                  <span className="ml-2 px-2 py-0.5 bg-orange-100 text-orange-600 rounded-full text-xs font-medium">
+                    {needsReminderCount} 件今日待提醒
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {overduePackages.length === 0 ? (
+          <div className="py-12 text-center">
+            <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-3">
+              <PackageCheck className="w-8 h-8 text-green-500" />
+            </div>
+            <p className="text-dark-400 text-sm">暂无超期包裹</p>
+            <p className="text-dark-300 text-xs mt-1">
+              所有包裹都在正常取件周期内
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {overduePackages.map((pkg) => (
+              <OverdueFollowUpCard key={pkg.id} pkg={pkg} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-card p-6">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-dark-800 mb-1">数据导出</h2>
             <p className="text-sm text-dark-500">
-              导出所有包裹数据，共 {packages.length} 条记录
+              导出所有包裹数据（包含催件记录），共 {packages.length} 条记录
             </p>
           </div>
           <button
